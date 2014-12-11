@@ -109,7 +109,7 @@
  * to s specified position interrupt driven. Enabling this will
  * use some extra ram and a few bytes of flash.
  */
-#define USE_COMMANDS 0
+#define USE_COMMANDS 1
 
 /*
  * Calculate how many clock cycles it takes to generate PWM.
