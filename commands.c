@@ -165,11 +165,9 @@ void commands_process_packet(unsigned char *data, unsigned char len) {
 
   case COMM_SERVO_MOVE:
     ind = 0;
-    uint8_t servo = data[0];
-    data++;
+    uint8_t servo = data[ind++];
     int16_t position = buffer_get_int16(data, &ind);
-    data += 2;
-    uint8_t speed = data[0];
+    uint8_t speed = data[ind++];
     servo_move(servo, position, speed);
     break;
 
