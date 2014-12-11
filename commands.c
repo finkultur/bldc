@@ -164,7 +164,13 @@ void commands_process_packet(unsigned char *data, unsigned char len) {
 		break;
 
   case COMM_SERVO_MOVE:
-    // Not implemented
+    ind = 0;
+    uint8_t servo = data[0];
+    data++;
+    int16_t position = buffer_get_int16(data, &ind);
+    data += 2;
+    uint8_t speed = data[0];
+    servo_move(servo, position, speed);
     break;
 
   case COMM_SERVO_MOVE_WITHIN_TIME:
