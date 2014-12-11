@@ -163,6 +163,18 @@ void commands_process_packet(unsigned char *data, unsigned char len) {
 		servos[0].offset = data[0];
 		break;
 
+  case COMM_SERVO_MOVE:
+    // Not implemented
+    break;
+
+  case COMM_SERVO_MOVE_WITHIN_TIME:
+    // Not implemented
+    break;
+
+  case COMM_SERVO_RESET_POS:
+    // Not implemented
+    break;
+
 	case COMM_SET_MCCONF:
 		mcconf = *mcpwm_get_configuration();
 
