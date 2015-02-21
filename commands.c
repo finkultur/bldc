@@ -98,6 +98,10 @@ void commands_process_packet(unsigned char *data, unsigned char len) {
 	mc_configuration mcconf;
 	app_configuration appconf;
 
+  uint8_t servo, speed;
+  int16_t position;
+  uint16_t time_ms;
+
 	(void)len;
 
 	packet_id = data[0];
@@ -165,17 +169,17 @@ void commands_process_packet(unsigned char *data, unsigned char len) {
 
   case COMM_SERVO_MOVE:
     ind = 0;
-    uint8_t servo = data[ind++];
-    int16_t position = buffer_get_int16(data, &ind);
-    uint8_t speed = data[ind++];
+    servo = data[ind++];
+    position = buffer_get_int16(data, &ind);
+    speed = data[ind++];
     servo_move(servo, position, speed);
     break;
 
   case COMM_SERVO_MOVE_WITHIN_TIME:
     ind = 0;
-    uint8_t servo = data[ind++];
-    int16_t position = buffer_get_int16t(data, &ind);
-    uint16_t time_ms = buffer_get_uint16t(data, &ind);
+    servo = data[ind++];
+    position = buffer_get_int16(data, &ind);
+    time_ms = buffer_get_uint16(data, &ind);
     servo_move_within_time(servo, position, time_ms);
     break;
 
