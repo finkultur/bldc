@@ -42,9 +42,9 @@ endif
 # Architecture or project specific options
 #
 
-# Enables the use of FPU on Cortex-M4.
+# Enables the use of FPU on Cortex-M4 (no, softfp, hard).
 ifeq ($(USE_FPU),)
-  USE_FPU = yes
+  USE_FPU = hard
 endif
 
 # Enable this if you really want to use the STM FWLib.
@@ -72,7 +72,7 @@ endif
 PROJECT = BLDC_4_ChibiOS
 
 # Imported source files and paths
-CHIBIOS = ../Downloads/ChibiOS-RT-master
+CHIBIOS = ChibiOS_2.6.6
 include $(CHIBIOS)/boards/ST_STM32F4_DISCOVERY/board.mk
 include $(CHIBIOS)/os/hal/platforms/STM32F4xx/platform.mk
 include $(CHIBIOS)/os/hal/hal.mk
@@ -242,13 +242,6 @@ ULIBS = -lm
 # End of user defines
 ##############################################################################
 
-ifeq ($(USE_FPU),yes)
-  USE_OPT += -mfloat-abi=softfp -mfpu=fpv4-sp-d16 -fsingle-precision-constant -Wdouble-promotion
-  DDEFS += -DCORTEX_USE_FPU=TRUE
-else
-  DDEFS += -DCORTEX_USE_FPU=FALSE
-endif
-
 ifeq ($(USE_FWLIB),yes)
   include $(CHIBIOS)/ext/stdperiph_stm32f4/stm32lib.mk
   CSRC += $(STM32SRC)
@@ -276,6 +269,7 @@ build/$(PROJECT).bin: build/$(PROJECT).elf
 upload: build/$(PROJECT).bin
 	#qstlink2 --cli --erase --write build/$(PROJECT).bin
 	openocd -f interface/stlink-v2.cfg -c "set WORKAREASIZE 0x2000" -f target/stm32f4x_stlink.cfg -c "program build/$(PROJECT).elf verify reset"
+	#openocd -f board/stm32f4discovery.cfg -c "reset_config trst_only combined" -c "program build/$(PROJECT).elf verify reset" # For openocd 0.9
 
 debug-start:
 	openocd -f stm32-bv_openocd.cfg

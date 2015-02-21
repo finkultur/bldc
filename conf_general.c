@@ -67,7 +67,10 @@
 #define MCPWM_RPM_LIMIT_NEG_TORQUE		true		// Use negative torque to limit the RPM
 #endif
 #ifndef MCPWM_CURR_MAX_RPM_FBRAKE
-#define MCPWM_CURR_MAX_RPM_FBRAKE		1500	// Maximum electrical RPM to use full brake at
+#define MCPWM_CURR_MAX_RPM_FBRAKE		300	// Maximum electrical RPM to use full brake at
+#endif
+#ifndef MCPWM_CURR_MAX_RPM_FBRAKE_CC
+#define MCPWM_CURR_MAX_RPM_FBRAKE_CC	1500	// Maximum electrical RPM to use full brake at with current control
 #endif
 #ifndef MCPWM_SLOW_ABS_OVERCURRENT
 #define MCPWM_SLOW_ABS_OVERCURRENT		false	// Use the filtered (and hence slower) current for the overcurrent fault detection
@@ -95,6 +98,9 @@
 #endif
 #ifndef MCPWM_LIM_TEMP_MOTOR_END
 #define MCPWM_LIM_TEMP_MOTOR_END		100.0	// MOTOR temperature where everything should be shut off
+#endif
+#ifndef MCPWM_MAX_FB_CURR_DIR_CHANGE
+#define MCPWM_MAX_FB_CURR_DIR_CHANGE	10.0	// Maximum current during full brake during which a direction change is allowed
 #endif
 
 // EEPROM settings
@@ -147,24 +153,35 @@ void conf_general_read_app_configuration(app_configuration *conf) {
 	// Set the default configuration
 	if (!is_ok) {
 		memset(conf, 0, sizeof(app_configuration));
+		conf->controller_id = 0;
 		conf->timeout_msec = 1000;
 		conf->timeout_brake_current = 0.0;
+		conf->send_can_status = true;
+
 		conf->app_to_use = APP_NONE;
 
-		conf->app_ppm_ctrl_type = PPM_CTRL_TYPE_CURRENT;
-		conf->app_ppm_pid_max_erpm = 15000;
-		conf->app_ppm_hyst = 0.15;
-		conf->app_ppm_pulse_start = 1.0;
-		conf->app_ppm_pulse_width = 1.0;
-		conf->app_ppm_rpm_lim_start = 200000.0;
-		conf->app_ppm_rpm_lim_end = 250000.0;
+		conf->app_ppm_conf.ctrl_type = PPM_CTRL_TYPE_CURRENT;
+		conf->app_ppm_conf.pid_max_erpm = 15000;
+		conf->app_ppm_conf.hyst = 0.15;
+		conf->app_ppm_conf.pulse_start = 1.0;
+		conf->app_ppm_conf.pulse_width = 1.0;
+		conf->app_ppm_conf.rpm_lim_start = 150000.0;
+		conf->app_ppm_conf.rpm_lim_end = 200000.0;
+		conf->app_ppm_conf.multi_esc = true;
+		conf->app_ppm_conf.tc = false;
+		conf->app_ppm_conf.tc_max_diff = 3000.0;
 
 		conf->app_uart_baudrate = 115200;
 
-		conf->app_chuk_ctrl_type = CHUK_CTRL_TYPE_CURRENT_NOREV;
-		conf->app_chuk_hyst = 0.15;
-		conf->app_chuk_rpm_lim_start = 20000.0;
-		conf->app_chuk_rpm_lim_end = 25000.0;
+		conf->app_chuk_conf.ctrl_type = CHUK_CTRL_TYPE_CURRENT;
+		conf->app_chuk_conf.hyst = 0.15;
+		conf->app_chuk_conf.rpm_lim_start = 150000.0;
+		conf->app_chuk_conf.rpm_lim_end = 250000.0;
+		conf->app_chuk_conf.ramp_time_pos = 0.5;
+		conf->app_chuk_conf.ramp_time_neg = 0.25;
+		conf->app_chuk_conf.multi_esc = true;
+		conf->app_chuk_conf.tc = false;
+		conf->app_chuk_conf.tc_max_diff = 3000.0;
 	}
 }
 
@@ -236,6 +253,7 @@ void conf_general_read_mc_configuration(mc_configuration *conf) {
 		conf->l_min_erpm = MCPWM_RPM_MIN;
 		conf->l_max_erpm = MCPWM_RPM_MAX;
 		conf->l_max_erpm_fbrake = MCPWM_CURR_MAX_RPM_FBRAKE;
+		conf->l_max_erpm_fbrake_cc = MCPWM_CURR_MAX_RPM_FBRAKE_CC;
 		conf->l_min_vin = MCPWM_MIN_VOLTAGE;
 		conf->l_max_vin = MCPWM_MAX_VOLTAGE;
 		conf->l_slow_abs_current = MCPWM_SLOW_ABS_OVERCURRENT;
@@ -252,9 +270,10 @@ void conf_general_read_mc_configuration(mc_configuration *conf) {
 
 		conf->sl_is_sensorless = MCPWM_IS_SENSORLESS;
 		conf->sl_min_erpm = MCPWM_MIN_RPM;
+		conf->sl_max_fullbreak_current_dir_change = MCPWM_MAX_FB_CURR_DIR_CHANGE;
 		conf->sl_min_erpm_cycle_int_limit = MCPWM_CYCLE_INT_LIMIT_MIN_RPM;
 		conf->sl_cycle_int_limit = MCPWM_CYCLE_INT_LIMIT;
-		conf->sl_cycle_int_limit_high_fac = MCPWM_CYCLE_INT_LIMIT_HIGH_FAC;
+		conf->sl_phase_advance_at_br = MCPWM_CYCLE_INT_LIMIT_HIGH_FAC;
 		conf->sl_cycle_int_rpm_br = MCPWM_CYCLE_INT_START_RPM_BR;
 		conf->sl_bemf_coupling_k = MCPWM_BEMF_INPUT_COUPLING_K;
 
@@ -315,10 +334,14 @@ bool conf_general_detect_motor_param(float current, float min_rpm, float low_dut
 
 	int ok_steps = 0;
 
+	mc_configuration mcconf_old = *mcpwm_get_configuration();
 	mc_configuration mcconf = *mcpwm_get_configuration();
 
-	mcpwm_set_min_rpm(min_rpm);
-	mcpwm_set_comm_mode(COMM_MODE_DELAY);
+	mcconf.comm_mode = COMM_MODE_DELAY;
+	mcconf.sl_phase_advance_at_br = 1.0;
+	mcconf.sl_min_erpm = min_rpm;
+	mcpwm_set_configuration(&mcconf);
+
 	mcpwm_set_current(current);
 
 	// Spin up the motor
@@ -396,8 +419,7 @@ bool conf_general_detect_motor_param(float current, float min_rpm, float low_dut
 	*bemf_coupling_k = avg_cycle_integrator_running;
 
 	// Restore settings
-	mcpwm_set_comm_mode(mcconf.comm_mode);
-	mcpwm_set_min_rpm(mcconf.sl_min_erpm);
+	mcpwm_set_configuration(&mcconf_old);
 
 	return ok_steps == 5 ? true : false;
 }

@@ -22,6 +22,7 @@
  *      Author: benjamin
  */
 
+#include <math.h>
 #include "ws2811.h"
 #include "stm32f4xx_conf.h"
 #include "ch.h"
@@ -38,6 +39,7 @@
 // Private variables
 static uint16_t bitbuffer[BITBUFFER_LEN];
 static uint32_t RGBdata[LED_BUFFER_LEN];
+static uint8_t gamma_table[256];
 
 // Private function prototypes
 static uint32_t rgb_to_local(uint32_t color);
@@ -73,17 +75,34 @@ void ws2811_init(void) {
 		bitbuffer[BITBUFFER_LEN - BITBUFFER_PAD - 1 + i] = 0;
 	}
 
+	// Generate gamma correction table
+	for (int i = 0;i < 256;i++) {
+		gamma_table[i] = (int)roundf(powf((float)i / 255.0, 1.0 / 0.45) * 255.0);
+	}
+
+#if WS2811_USE_CH2
+	palSetPadMode(GPIOB, 7,
+			PAL_MODE_ALTERNATE(GPIO_AF_TIM4) |
+			PAL_STM32_OTYPE_OPENDRAIN |
+			PAL_STM32_OSPEED_MID1);
+#else
 	palSetPadMode(GPIOB, 6,
 			PAL_MODE_ALTERNATE(GPIO_AF_TIM4) |
 			PAL_STM32_OTYPE_OPENDRAIN |
 			PAL_STM32_OSPEED_MID1);
+#endif
 
 	// DMA clock enable
 	RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_DMA1 , ENABLE);
 
+#if WS2811_USE_CH2
+	DMA_DeInit(DMA1_Stream3);
+	DMA_InitStructure.DMA_PeripheralBaseAddr = (uint32_t)&TIM4->CCR2;
+#else
 	DMA_DeInit(DMA1_Stream0);
-	DMA_InitStructure.DMA_Channel = DMA_Channel_2;
 	DMA_InitStructure.DMA_PeripheralBaseAddr = (uint32_t)&TIM4->CCR1;
+#endif
+	DMA_InitStructure.DMA_Channel = DMA_Channel_2;
 	DMA_InitStructure.DMA_Memory0BaseAddr = (uint32_t)bitbuffer;
 	DMA_InitStructure.DMA_DIR = DMA_DIR_MemoryToPeripheral;
 	DMA_InitStructure.DMA_BufferSize = BITBUFFER_LEN;
@@ -98,7 +117,11 @@ void ws2811_init(void) {
 	DMA_InitStructure.DMA_MemoryBurst = DMA_MemoryBurst_Single;
 	DMA_InitStructure.DMA_PeripheralBurst = DMA_PeripheralBurst_Single;
 
+#if WS2811_USE_CH2
+	DMA_Init(DMA1_Stream3, &DMA_InitStructure);
+#else
 	DMA_Init(DMA1_Stream0, &DMA_InitStructure);
+#endif
 
 	RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM4, ENABLE);
 
@@ -117,17 +140,30 @@ void ws2811_init(void) {
 	TIM_OCInitStructure.TIM_Pulse = bitbuffer[0];
 	TIM_OCInitStructure.TIM_OCPolarity = TIM_OCPolarity_High;
 
+#if WS2811_USE_CH2
+	TIM_OC2Init(TIM4, &TIM_OCInitStructure);
+	TIM_OC2PreloadConfig(TIM4, TIM_OCPreload_Enable);
+#else
 	TIM_OC1Init(TIM4, &TIM_OCInitStructure);
 	TIM_OC1PreloadConfig(TIM4, TIM_OCPreload_Enable);
+#endif
 
 	// TIM4 counter enable
 	TIM_Cmd(TIM4, ENABLE);
 
 	// DMA enable
+#if WS2811_USE_CH2
+	DMA_Cmd(DMA1_Stream3, ENABLE);
+#else
 	DMA_Cmd(DMA1_Stream0, ENABLE);
+#endif
 
 	// TIM4 Update DMA Request enable
+#if WS2811_USE_CH2
+	TIM_DMACmd(TIM4, TIM_DMA_CC2, ENABLE);
+#else
 	TIM_DMACmd(TIM4, TIM_DMA_CC1, ENABLE);
+#endif
 
 	// Main Output Enable
 	TIM_CtrlPWMOutputs(TIM4, ENABLE);
@@ -194,6 +230,10 @@ static uint32_t rgb_to_local(uint32_t color) {
 	uint32_t r = (color >> 16) & 0xFF;
 	uint32_t g = (color >> 8) & 0xFF;
 	uint32_t b = color & 0xFF;
+
+	r = gamma_table[r];
+	g = gamma_table[g];
+	b = gamma_table[b];
 
 	return (g << 16) | (r << 8) | b;
 }
